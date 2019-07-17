@@ -1,26 +1,97 @@
 import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import PropTypes from 'prop-types';
+import axios from 'axios';
+import { BehaviorSubject, combineLatest } from 'rxjs/index';
+import { flatMap, map } from 'rxjs/operators';
 
-function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
+import withObservableStream from './components/hocs/withObservableStream';
+
+const SUBJECT = {
+    POPULARITY: 'search',
+    DATE: 'search_by_date',
+};
+
+const App = ({
+    query,
+    subject,
+    stories,
+    handleQueryChange,
+    handleSelectSubject,
+}) => (
+    <div>
+        <h1>React with RxJS</h1>
+        <input 
+            type="text"
+            value={query}
+            onChange={e => handleQueryChange(e.target.value)}
+        />
+
+        <div>
+            {Object.values(SUBJECT).map(value => (
+                <button
+                    key={value}
+                    onClick={() => handleSelectSubject(value)}
+                    type='button'
+                >
+                    { value }
+                </button>
+            ))}
+        </div>
+
         <p>
-          Edit <code>src/App.js</code> and save to reload.
+            {`http://hn.algolia.com/api/v1/${subject}?query=${query}`}
         </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
-}
 
-export default App;
+        <ul>
+            {stories.map(story => (
+                <li key={story.objectID}>
+                    <a href={story.url || story.story_url}>
+                        { story.title || story.story_title }
+                    </a>
+                </li>
+            ))}
+        </ul>
+    </div>
+);
+
+App.propTypes = {
+    query: PropTypes.string.isRequired,
+    subject: PropTypes.string.isRequired,
+    handleQueryChange: PropTypes.func.isRequired,
+    handleSelectSubject: PropTypes.func.isRequired,
+};
+
+// Observables
+const subject$ = new BehaviorSubject(SUBJECT.POPULARITY);
+const query$ = new BehaviorSubject('react');
+const fetch$ = combineLatest(subject$, query$).pipe(
+    flatMap(([subject, query]) =>
+        axios(`http://hn.algolia.com/api/v1/${subject}?query=${query}`),
+    ),
+    map(result => result.data.hits),      
+);
+
+export default withObservableStream(
+    // observable
+    combineLatest(
+        subject$,
+        query$,
+        fetch$,
+        (subject, query, stories) => ({
+            subject,
+            query,
+             stories
+        }),
+    ),
+    // triggers
+    {
+        handleQueryChange: value => query$.next(value),
+        handleSelectSubject: subject => subject$.next(subject),
+    },
+    // initialState
+    {
+        query: '',
+        subject: SUBJECT.POPULARITY,
+        stories: []
+    }
+)(App);
